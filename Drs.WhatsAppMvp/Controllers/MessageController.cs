@@ -11,11 +11,13 @@ public class MessageController : ControllerBase
 {
     private readonly MessageStore _messages;
     private readonly TemplateRenderer _renderer;
+    private readonly TemplateStore _templates;
 
-    public MessageController(MessageStore messages, TemplateRenderer renderer)
+    public MessageController(MessageStore messages, TemplateRenderer renderer, TemplateStore templates)
     {
         _messages = messages;
         _renderer = renderer;
+        _templates = templates;
     }
 
     /// <summary>
@@ -27,8 +29,20 @@ public class MessageController : ControllerBase
         if (dto.CandidateId == Guid.Empty)
             return BadRequest("CandidateId is required.");
 
+        // Check if template is a name or raw string
+        var templateContent = dto.Template;
+
+        if (!dto.Template.Contains("{{"))
+        {
+            var stored = _templates.Get(dto.Template);
+            if (stored is null)
+                return NotFound($"Template '{dto.Template}' not found.");
+
+            templateContent = stored.Content;
+        }
+
         // Render template using Fluid engine
-        var renderedText = await _renderer.RenderAsync(dto.Template, dto.Variables);
+        var renderedText = await _renderer.RenderAsync(templateContent, dto.Variables);
 
         // Store message
         var message = new MessageRecord(
@@ -43,7 +57,7 @@ public class MessageController : ControllerBase
         _messages.Add(message);
 
         // Audit log for traceability
-        Audit.Log(HttpContext, "SEND_MESSAGE", dto.CandidateId.ToString(), true);
+        Audit.Log(HttpContext, "SEND_MESSAGE", dto.CandidateId.ToString(), true, renderedText);
 
         return Ok(new
         {
@@ -67,6 +81,8 @@ public class MessageController : ControllerBase
             .OrderBy(m => m.Timestamp)
             .ToList();
 
+
         return Ok(results);
     }
+    
 }
